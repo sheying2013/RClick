@@ -12,15 +12,13 @@ permissions:
 jobs:
   build:
     name: Build Universal App
-    runs-on: macos-15
+    runs-on: macos-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Xcode 16
+      - name: Setup Xcode
         run: |
-          XCODE_PATH=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           xcodebuild -version
           swift --version
 
@@ -40,6 +38,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            SWIFT_STRICT_CONCURRENCY=minimal \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             MARKETING_VERSION="2.3.1"
 

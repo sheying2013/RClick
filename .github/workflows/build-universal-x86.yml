@@ -1,0 +1,100 @@
+name: Build Universal & x86_64 Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Universal App
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+          swift --version
+
+      - name: Build Universal App
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="$(date +%Y%m%d%H%M)"
+          
+          xcodebuild build \
+            -project RClick.xcodeproj \
+            -scheme RClick \
+            -configuration Release \
+            -derivedDataPath build \
+            -destination "generic/platform=macOS" \
+            ARCHS="x86_64 arm64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            MARKETING_VERSION="2.3.1"
+
+      - name: Ad-hoc Code Sign
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find build -name "RClick.app" -type d -path "*/Products/Release/*" | head -n 1)
+          EXT_PATH="$APP_PATH/Contents/PlugIns/FinderSyncExt.appex"
+          
+          echo "APP_PATH: $APP_PATH"
+          echo "EXT_PATH: $EXT_PATH"
+          
+          # 签名 Extension
+          codesign --force --deep --sign - \
+            --entitlements "FinderSyncExt/FinderSyncExt.entitlements" \
+            "$EXT_PATH"
+            
+          # 签名 Main App
+          codesign --force --deep --sign - \
+            --entitlements "RClick/RClick.entitlements" \
+            "$APP_PATH"
+
+          # 验证架构
+          echo "=== RClick Architectures ==="
+          lipo -info "$APP_PATH/Contents/MacOS/RClick"
+          echo "=== FinderSyncExt Architectures ==="
+          lipo -info "$EXT_PATH/Contents/MacOS/FinderSyncExt"
+
+          # 打包 ZIP
+          cd "$(dirname "$APP_PATH")"
+          ditto -c -k --keepParent "RClick.app" "${GITHUB_WORKSPACE}/RClick-Universal.zip"
+          cd "${GITHUB_WORKSPACE}"
+
+          # 打包 DMG
+          mkdir -p dmg_root
+          ditto "$APP_PATH" dmg_root/RClick.app
+          ln -s /Applications dmg_root/Applications
+          hdiutil create -volname "RClick" -srcfolder dmg_root -ov -format UDZO RClick-Universal.dmg
+          rm -rf dmg_root
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RClick-Universal-macOS
+          path: |
+            RClick-Universal.zip
+            RClick-Universal.dmg
+          retention-days: 30
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            RClick-Universal.zip
+            RClick-Universal.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
